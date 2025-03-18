@@ -13,6 +13,16 @@ class VanilloIE(InfoExtractor):
             'title': 'Wawa',
             'description': '',
             'thumbnail': 'https://images.vanillo.tv/V6mYuajeHGsSSPRJKCdRAvvWgHFVGZ00g-ne3TZevss/h:300/aHR0cHM6Ly9pbWFnZXMuY2RuLnZhbmlsbG8udHYvdGh1bWJuYWlsL1RhUGE3TEJFTVBlS205elh2ZWdzLmF2aWY',
+            'uploader_url': 'M7A',
+            'upload_date': '20240309',  # if using _parse_date, expect YYYYMMDD, server api provides 2024-03-09T07:56:35.636Z
+            'duration': 5.71,
+            'view_count': 205,
+            'comment_count': 2,
+            'like_count': 4,
+            'dislike_count': 0,
+            'average_rating': 4.2,
+            'categories': ['film_and_animation'],
+            'tags': ['Wawa', 'wawa', 'Wa Wa', 'wa wa', 'WaWa', 'wAwA', 'wA Wa'],
         },
         'playlist_mincount': 1,
     }]
@@ -29,6 +39,53 @@ class VanilloIE(InfoExtractor):
         title = data.get('title') or video_id
         description = data.get('description')
         thumbnail = data.get('thumbnail')
+
+        uploader = data.get('uploader', {})
+        uploader_url = uploader.get('url')
+
+        upload_date_raw = data.get('publishedAt')
+        upload_date = None
+        if upload_date_raw:
+            # _parse_date returns a string in YYYYMMDD format if successful.
+            # If you prefer to keep the original ISO format, simply set:
+            # upload_date = upload_date_raw
+            upload_date = self._parse_date(upload_date_raw)
+
+        duration = data.get('duration')
+        view_count = None
+        if data.get('views'):
+            try:
+                view_count = int(data.get('views'))
+            except Exception:
+                view_count = None
+
+        comment_count = data.get('totalComments')
+
+        # Extract likes and dislikes separately
+        like_count = None
+        if data.get('likes') is not None:
+            try:
+                like_count = int(data.get('likes'))
+            except Exception:
+                like_count = None
+
+        dislike_count = None
+        if data.get('dislikes') is not None:
+            try:
+                dislike_count = int(data.get('dislikes'))
+            except Exception:
+                dislike_count = None
+
+        average_rating = None
+        if like_count is not None and dislike_count is not None:
+            total = like_count + dislike_count
+            if total > 0:
+                average_rating = round((like_count / total) * 5, 1)
+
+        categories = data.get('category')
+        if categories and not isinstance(categories, list):
+            categories = [categories]
+        tags = data.get('tags')
 
         # 2) Get watch token (required for accessing manifests)
         watch_token_url = 'https://api.vanillo.tv/v1/watch'
@@ -64,7 +121,18 @@ class VanilloIE(InfoExtractor):
             'description': description,
             'thumbnail': thumbnail,
             'formats': formats,
+            'uploader_url': uploader_url,
+            'upload_date': upload_date,
+            'duration': duration,
+            'view_count': view_count,
+            'comment_count': comment_count,
+            'like_count': like_count,
+            'dislike_count': dislike_count,
+            'average_rating': average_rating,
+            'categories': categories,
+            'tags': tags,
         }
+
 
 class VanilloPlaylistIE(InfoExtractor):
     _VALID_URL = r'https?://(?:dev\.|beta\.)?vanillo\.tv/playlist/(?P<id>[^/?#&]+)'
@@ -90,6 +158,7 @@ class VanilloPlaylistIE(InfoExtractor):
             video_url = f'https://vanillo.tv/v/{vid}'
             entries.append(self.url_result(video_url, VanilloIE.ie_key()))
         return self.playlist_result(entries, playlist_id, playlist_title=f'Playlist {playlist_id}')
+
 
 class VanilloUserIE(InfoExtractor):
     _VALID_URL = r'https?://(?:dev\.|beta\.)?vanillo\.tv/u/(?P<id>[^/?#&]+)'
