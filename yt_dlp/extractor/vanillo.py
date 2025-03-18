@@ -1,4 +1,6 @@
 import json
+import re
+import datetime
 
 from .common import InfoExtractor
 from ..utils import ExtractorError
@@ -14,7 +16,7 @@ class VanilloIE(InfoExtractor):
             'description': '',
             'thumbnail': 'https://images.vanillo.tv/V6mYuajeHGsSSPRJKCdRAvvWgHFVGZ00g-ne3TZevss/h:300/aHR0cHM6Ly9pbWFnZXMuY2RuLnZhbmlsbG8udHYvdGh1bWJuYWlsL1RhUGE3TEJFTVBlS205elh2ZWdzLmF2aWY',
             'uploader_url': 'M7A',
-            'upload_date': '20240309',  # if using _parse_date, expect YYYYMMDD, server api provides 2024-03-09T07:56:35.636Z
+            'upload_date': '20240309',  # YYYYMMDD format, server api provides 2024-03-09T07:56:35.636Z
             'duration': 5.71,
             'view_count': 205,
             'comment_count': 2,
@@ -43,38 +45,36 @@ class VanilloIE(InfoExtractor):
         uploader = data.get('uploader', {})
         uploader_url = uploader.get('url')
 
+        # 2) Fix the ISO date to remove leftover data
+
         upload_date_raw = data.get('publishedAt')
         upload_date = None
         if upload_date_raw:
-            # _parse_date returns a string in YYYYMMDD format if successful.
-            # If you prefer to keep the original ISO format, simply set:
-            # upload_date = upload_date_raw
-            upload_date = self._parse_date(upload_date_raw)
+            # Remove fractional seconds, etc.
+            upload_date_raw = re.sub(r'\.\d+', '', upload_date_raw)
+            upload_date_raw = re.sub(r'Z.*$', 'Z', upload_date_raw)
+
+            # Parse it into a datetime. For example:
+            try:
+                parsed_date = datetime.datetime.fromisoformat(upload_date_raw.replace('Z', '+00:00'))
+                upload_date = parsed_date.strftime('%Y%m%d')
+            except ValueError:
+                pass
+
 
         duration = data.get('duration')
-        view_count = None
-        if data.get('views'):
-            try:
-                view_count = int(data.get('views'))
-            except Exception:
-                view_count = None
 
-        comment_count = data.get('totalComments')
-
-        # Extract likes and dislikes separately
-        like_count = None
-        if data.get('likes') is not None:
+        # 3) Convert numeric fields
+        def safe_int(val):
             try:
-                like_count = int(data.get('likes'))
-            except Exception:
-                like_count = None
+                return int(val)
+            except (TypeError, ValueError):
+                return None
 
-        dislike_count = None
-        if data.get('dislikes') is not None:
-            try:
-                dislike_count = int(data.get('dislikes'))
-            except Exception:
-                dislike_count = None
+        view_count = safe_int(data.get('views'))
+        comment_count = safe_int(data.get('totalComments'))
+        like_count = safe_int(data.get('likes'))
+        dislike_count = safe_int(data.get('dislikes'))
 
         average_rating = None
         if like_count is not None and dislike_count is not None:
@@ -87,7 +87,7 @@ class VanilloIE(InfoExtractor):
             categories = [categories]
         tags = data.get('tags')
 
-        # 2) Get watch token (required for accessing manifests)
+        # 4) Get watch token (required for accessing manifests)
         watch_token_url = 'https://api.vanillo.tv/v1/watch'
         post_data = json.dumps({'videoId': video_id}).encode('utf-8')
         watch_token_resp = self._download_json(
@@ -100,13 +100,13 @@ class VanilloIE(InfoExtractor):
         if not watch_token:
             raise ExtractorError('Failed to retrieve watch token', expected=True)
 
-        # 3) Get the HLS & DASH manifest URLs using the watch token
+        # 5) Get the HLS & DASH manifest URLs using the watch token
         manifests_url = f'https://api.vanillo.tv/v1/watch/manifests?watchToken={watch_token}'
         manifests = self._download_json(manifests_url, video_id, note='Downloading manifests')
         hls_url = manifests.get('data', {}).get('media', {}).get('hls')
         dash_url = manifests.get('data', {}).get('media', {}).get('dash')
 
-        # 4) Extract available formats using yt-dlp helpers
+        # 6) Extract available formats using yt-dlp helpers
         formats = []
         if hls_url:
             formats.extend(self._extract_m3u8_formats(
