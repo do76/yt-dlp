@@ -57,7 +57,6 @@ class VanilloIE(InfoExtractor):
         if dash_url:
             formats.extend(self._extract_mpd_formats(
                 dash_url, video_id, mpd_id='dash', fatal=False))
-        self._sort_formats(formats)
 
         return {
             'id': video_id,
