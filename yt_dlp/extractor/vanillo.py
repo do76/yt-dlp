@@ -40,7 +40,7 @@ class VanilloIE(InfoExtractor):
         except ExtractorError as e:
             # Try to get an HTTP code from the error cause or message
             http_code = getattr(e.cause, 'code', None)
-            if http_code is None and "HTTP Error 404" in str(e):
+            if http_code is None and 'HTTP Error 404' in str(e):
                 http_code = 404
             if http_code == 404:
                 self.raise_login_required(
