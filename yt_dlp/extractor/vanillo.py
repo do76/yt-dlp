@@ -1,10 +1,11 @@
+import datetime
 import json
 import re
-import datetime
 
 from .common import InfoExtractor
 from ..utils import ExtractorError
 
+# Private videos can be downloaded by adding --add-header "authorization: Bearer abcxyz", but won't work with --cookies-from-browser and --cookies file.txt
 
 class VanilloIE(InfoExtractor):
     _VALID_URL = r'https?://(?:dev\.|beta\.)?vanillo\.tv/(?:v|embed)/(?P<id>[^/?#&]+)'
@@ -16,7 +17,7 @@ class VanilloIE(InfoExtractor):
             'description': '',
             'thumbnail': 'https://images.vanillo.tv/V6mYuajeHGsSSPRJKCdRAvvWgHFVGZ00g-ne3TZevss/h:300/aHR0cHM6Ly9pbWFnZXMuY2RuLnZhbmlsbG8udHYvdGh1bWJuYWlsL1RhUGE3TEJFTVBlS205elh2ZWdzLmF2aWY',
             'uploader_url': 'M7A',
-            'upload_date': '20240309',  # YYYYMMDD format, server api provides 2024-03-09T07:56:35.636Z
+            'upload_date': '20240309',  # YYYYMMDD format, server API provides 2024-03-09T07:56:35.636Z
             'duration': 5.71,
             'view_count': 205,
             'comment_count': 2,
@@ -34,7 +35,19 @@ class VanilloIE(InfoExtractor):
 
         # 1) Retrieve video info (metadata)
         video_info_url = f'https://api.vanillo.tv/v1/videos/{video_id}?groups=uploader,profile.full'
-        video_info = self._download_json(video_info_url, video_id, note='Downloading video info')
+        try:
+            video_info = self._download_json(video_info_url, video_id, note='Downloading video info')
+        except ExtractorError as e:
+            # Check for HTTP errors
+            http_code = getattr(e.cause, 'code', None)
+            if http_code == 404:
+                self.raise_login_required(
+                    'Session cookies are required for this URL and can be passed with the --add-header "authorization: Bearer abcxyz" option. '
+                    'The --cookies and --cookies-from-browser option will not work', method=None)
+            elif http_code == 403:
+                raise ExtractorError('Your Internet provider is likely blocked. Try another ISP or use VPN', expected=True)
+            raise
+
         if video_info.get('status') != 'success':
             raise ExtractorError('Video info API returned an error', expected=True)
         data = video_info.get('data', {})
@@ -46,21 +59,17 @@ class VanilloIE(InfoExtractor):
         uploader_url = uploader.get('url')
 
         # 2) Fix the ISO date to remove leftover data
-
         upload_date_raw = data.get('publishedAt')
         upload_date = None
         if upload_date_raw:
-            # Remove fractional seconds, etc.
+            # Remove fractional seconds and any extra data after 'Z'
             upload_date_raw = re.sub(r'\.\d+', '', upload_date_raw)
             upload_date_raw = re.sub(r'Z.*$', 'Z', upload_date_raw)
-
-            # Parse it into a datetime. For example:
             try:
                 parsed_date = datetime.datetime.fromisoformat(upload_date_raw.replace('Z', '+00:00'))
                 upload_date = parsed_date.strftime('%Y%m%d')
             except ValueError:
                 pass
-
 
         duration = data.get('duration')
 
@@ -95,7 +104,6 @@ class VanilloIE(InfoExtractor):
             note='Downloading watch token',
             data=post_data,
             headers={'Content-Type': 'application/json'})
-
         watch_token = watch_token_resp.get('data', {}).get('watchToken')
         if not watch_token:
             raise ExtractorError('Failed to retrieve watch token', expected=True)
@@ -147,8 +155,17 @@ class VanilloPlaylistIE(InfoExtractor):
 
     def _real_extract(self, url):
         playlist_id = self._match_id(url)
-        api_url = f'https://api.vanillo.tv/v1/playlists/{playlist_id}/videos?offset=0&limit=20'
-        playlist_data = self._download_json(api_url, playlist_id, note='Downloading playlist info')
+        # First, download playlist metadata
+        playlist_api_url = f'https://api.vanillo.tv/v1/playlists/{playlist_id}'
+        playlist_info = self._download_json(playlist_api_url, playlist_id, note='Downloading playlist metadata', fatal=False)
+        playlist_data = playlist_info.get('data', {}).get('playlist', {})
+        playlist_title = playlist_data.get('name') or playlist_id
+        playlist_description = playlist_data.get('description')
+        video_count = playlist_data.get('videoCount') or 20
+
+        # Then, download the videos using the videoCount as the limit
+        api_url = f'https://api.vanillo.tv/v1/playlists/{playlist_id}/videos?offset=0&limit={video_count}'
+        playlist_data = self._download_json(api_url, playlist_id, note='Downloading playlist videos')
         videos = playlist_data.get('data', {}).get('videos', [])
         entries = []
         for video in videos:
@@ -157,7 +174,10 @@ class VanilloPlaylistIE(InfoExtractor):
                 continue
             video_url = f'https://vanillo.tv/v/{vid}'
             entries.append(self.url_result(video_url, VanilloIE.ie_key()))
-        return self.playlist_result(entries, playlist_id, playlist_title=f'Playlist {playlist_id}')
+        info = self.playlist_result(entries, playlist_id, playlist_title=playlist_title)
+        if playlist_description:
+            info['description'] = playlist_description
+        return info
 
 
 class VanilloUserIE(InfoExtractor):
@@ -173,14 +193,22 @@ class VanilloUserIE(InfoExtractor):
 
     def _real_extract(self, url):
         user_id = self._match_id(url)
-        api_url = f'https://api.vanillo.tv/v1/profiles/{user_id}/videos?offset=0&limit=20'
-        user_data = self._download_json(api_url, user_id, note='Downloading user videos')
-        videos = user_data.get('data', {}).get('videos', [])
         entries = []
-        for video in videos:
-            vid = video.get('id')
-            if not vid:
-                continue
-            video_url = f'https://vanillo.tv/v/{vid}'
-            entries.append(self.url_result(video_url, VanilloIE.ie_key()))
+        offset = 0
+        while True:
+            # Loop to paginate through all user videos
+            api_url = f'https://api.vanillo.tv/v1/profiles/{user_id}/videos?offset={offset}&limit=20&groups=videos.all'
+            user_data = self._download_json(api_url, user_id, note='Downloading user videos', fatal=False)
+            videos = user_data.get('data', {}).get('videos', [])
+            if not videos:
+                break
+            for video in videos:
+                vid = video.get('id')
+                if not vid:
+                    continue
+                video_url = f'https://vanillo.tv/v/{vid}'
+                entries.append(self.url_result(video_url, VanilloIE.ie_key()))
+            if len(videos) < 20:
+                break
+            offset += 20
         return self.playlist_result(entries, user_id, playlist_title=f'User {user_id} videos')
