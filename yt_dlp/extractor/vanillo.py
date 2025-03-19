@@ -38,11 +38,13 @@ class VanilloIE(InfoExtractor):
         try:
             video_info = self._download_json(video_info_url, video_id, note='Downloading video info')
         except ExtractorError as e:
-            # Check for HTTP errors
+            # Try to get an HTTP code from the error cause or message
             http_code = getattr(e.cause, 'code', None)
+            if http_code is None and "HTTP Error 404" in str(e):
+                http_code = 404
             if http_code == 404:
                 self.raise_login_required(
-                    'Session cookies are required for this URL and can be passed with the --add-header "authorization: Bearer abcxyz" option. '
+                    'Private video. Authorization is required for this URL and can be passed with the --add-header "authorization: Bearer abcxyz" option. '
                     'The --cookies and --cookies-from-browser option will not work', method=None)
             elif http_code == 403:
                 raise ExtractorError('Your Internet provider is likely blocked. Try another ISP or use VPN', expected=True)
