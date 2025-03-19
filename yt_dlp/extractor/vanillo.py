@@ -5,7 +5,9 @@ import re
 from .common import InfoExtractor
 from ..utils import ExtractorError
 
-# Private videos can be downloaded by adding --add-header "authorization: Bearer abcxyz", but won't work with --cookies-from-browser and --cookies file.txt
+# NOTE: Private videos can be downloaded by adding --add-header "authorization: Bearer abcxyz",
+# but won't work with --cookies-from-browser and --cookies file.txt
+
 
 class VanilloIE(InfoExtractor):
     _VALID_URL = r'https?://(?:dev\.|beta\.)?vanillo\.tv/(?:v|embed)/(?P<id>[^/?#&]+)'
@@ -125,12 +127,25 @@ class VanilloIE(InfoExtractor):
             formats.extend(self._extract_mpd_formats(
                 dash_url, video_id, mpd_id='dash', fatal=False))
 
+        # 7) Extract subtitles from both HLS and DASH manifests
+        subtitles = {}
+        if hls_url:
+            subs = self._extract_m3u8_subtitles(hls_url, video_id, m3u8_id='hls', fatal=False)
+            if subs:
+                subtitles.update(subs)
+        if dash_url:
+            dash_subs = self._extract_mpd_subtitles(dash_url, video_id, mpd_id='dash', fatal=False)
+            if dash_subs:
+                for lang, subs in dash_subs.items():
+                    subtitles.setdefault(lang, []).extend(subs)
+
         return {
             'id': video_id,
             'title': title,
             'description': description,
             'thumbnail': thumbnail,
             'formats': formats,
+            'subtitles': subtitles,
             'uploader_url': uploader_url,
             'upload_date': upload_date,
             'duration': duration,
