@@ -32,6 +32,43 @@ class VanilloIE(InfoExtractor):
         'playlist_mincount': 1,
     }]
 
+    def _extract_m3u8_subtitles(self, m3u8_url, video_id, m3u8_id='hls', fatal=True):
+        subtitles = {}
+        try:
+            manifest = self._download_webpage(m3u8_url, video_id, note='Downloading m3u8 subtitles', fatal=fatal)
+        except ExtractorError:
+            return subtitles
+        for line in manifest.splitlines():
+            if line.startswith('#EXT-X-MEDIA:') and 'TYPE=SUBTITLES' in line:
+                lang_match = re.search(r'LANGUAGE="([^"]+)"', line)
+                uri_match = re.search(r'URI="([^"]+)"', line)
+                if lang_match and uri_match:
+                    lang = lang_match.group(1)
+                    uri = uri_match.group(1)
+                    # Resolve relative URL if needed.
+                    uri = self._proto_relative_url(uri, m3u8_url)
+                    subtitles.setdefault(lang, []).append({'url': uri})
+        return subtitles
+
+    def _extract_mpd_subtitles(self, mpd_url, video_id, mpd_id='dash', fatal=True):
+        subtitles = {}
+        try:
+            manifest = self._download_webpage(mpd_url, video_id, note='Downloading MPD manifest for subtitles', fatal=fatal)
+        except ExtractorError:
+            return subtitles
+        # A very basic extraction: Look for AdaptationSet blocks with mimeType="text/vtt"
+        for adaptation in re.findall(r'(<AdaptationSet\s+[^>]*mimeType="text/vtt"[^>]*>.*?</AdaptationSet>)', manifest, re.DOTALL):
+            # Extract language if present
+            m_lang = re.search(r'lang="([^"]+)"', adaptation)
+            lang = m_lang.group(1) if m_lang else 'en'
+            # Extract BaseURL within the block
+            m_base = re.search(r'<BaseURL>([^<]+)</BaseURL>', adaptation)
+            if m_base:
+                uri = m_base.group(1)
+                uri = self._proto_relative_url(uri, mpd_url)
+                subtitles.setdefault(lang, []).append({'url': uri})
+        return subtitles
+
     def _real_extract(self, url):
         video_id = self._match_id(url)
 
