@@ -160,9 +160,15 @@ class VanilloIE(InfoExtractor):
         if hls_url:
             formats.extend(self._extract_m3u8_formats(
                 hls_url, video_id, ext='mp4', m3u8_id='hls', fatal=False))
+
+        # DASH provides comically gigantic files. Disabling.
+        # example - 1.7 mb file becomes 15.1 mb, thus short videos for no reason become 100+gb
+        # same for audio tracks, thus RAM usage will be high, and merged file will be even bigger.
+        '''
         if dash_url:
             formats.extend(self._extract_mpd_formats(
                 dash_url, video_id, mpd_id='dash', fatal=False))
+                '''
 
         # 7) Extract subtitles from both HLS and DASH manifests
         subtitles = {}
