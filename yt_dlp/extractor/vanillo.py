@@ -32,43 +32,6 @@ class VanilloIE(InfoExtractor):
         'playlist_mincount': 1,
     }]
 
-    def _extract_m3u8_subtitles(self, m3u8_url, video_id, m3u8_id='hls', fatal=True):
-        subtitles = {}
-        try:
-            manifest = self._download_webpage(m3u8_url, video_id, note='Downloading m3u8 subtitles', fatal=fatal)
-        except ExtractorError:
-            return subtitles
-        for line in manifest.splitlines():
-            if line.startswith('#EXT-X-MEDIA:') and 'TYPE=SUBTITLES' in line:
-                lang_match = re.search(r'LANGUAGE="([^"]+)"', line)
-                uri_match = re.search(r'URI="([^"]+)"', line)
-                if lang_match and uri_match:
-                    lang = lang_match.group(1)
-                    uri = uri_match.group(1)
-                    # Resolve relative URL if needed.
-                    uri = self._proto_relative_url(uri, m3u8_url)
-                    subtitles.setdefault(lang, []).append({'url': uri})
-        return subtitles
-
-    def _extract_mpd_subtitles(self, mpd_url, video_id, mpd_id='dash', fatal=True):
-        subtitles = {}
-        try:
-            manifest = self._download_webpage(mpd_url, video_id, note='Downloading MPD manifest for subtitles', fatal=fatal)
-        except ExtractorError:
-            return subtitles
-        # A very basic extraction: Look for AdaptationSet blocks with mimeType="text/vtt"
-        for adaptation in re.findall(r'(<AdaptationSet\s+[^>]*mimeType="text/vtt"[^>]*>.*?</AdaptationSet>)', manifest, re.DOTALL):
-            # Extract language if present
-            m_lang = re.search(r'lang="([^"]+)"', adaptation)
-            lang = m_lang.group(1) if m_lang else 'en'
-            # Extract BaseURL within the block
-            m_base = re.search(r'<BaseURL>([^<]+)</BaseURL>', adaptation)
-            if m_base:
-                uri = m_base.group(1)
-                uri = self._proto_relative_url(uri, mpd_url)
-                subtitles.setdefault(lang, []).append({'url': uri})
-        return subtitles
-
     def _real_extract(self, url):
         video_id = self._match_id(url)
 
@@ -153,34 +116,27 @@ class VanilloIE(InfoExtractor):
         manifests_url = f'https://api.vanillo.tv/v1/watch/manifests?watchToken={watch_token}'
         manifests = self._download_json(manifests_url, video_id, note='Downloading manifests')
         hls_url = manifests.get('data', {}).get('media', {}).get('hls')
-        dash_url = manifests.get('data', {}).get('media', {}).get('dash')
+        # dash_url = manifests.get('data', {}).get('media', {}).get('dash')
 
-        # 6) Extract available formats using yt-dlp helpers
+        # 6) Extract available formats and subtitles using combined helper methods
+        subtitles = {}
         formats = []
         if hls_url:
-            formats.extend(self._extract_m3u8_formats(
-                hls_url, video_id, ext='mp4', m3u8_id='hls', fatal=False))
+            fmts, subs = self._extract_m3u8_formats_and_subtitles(
+                hls_url, video_id, ext='mp4', m3u8_id='hls', fatal=False)
+            formats.extend(fmts)
+            self._merge_subtitles(subs, target=subtitles)
 
         # DASH provides comically gigantic files. Disabling.
         # example - 1.7 mb file becomes 15.1 mb, thus short videos for no reason become 100+gb
         # same for audio tracks, thus RAM usage will be high, and merged file will be even bigger.
         '''
         if dash_url:
-            formats.extend(self._extract_mpd_formats(
-                dash_url, video_id, mpd_id='dash', fatal=False))
-                '''
-
-        # 7) Extract subtitles from both HLS and DASH manifests
-        subtitles = {}
-        if hls_url:
-            subs = self._extract_m3u8_subtitles(hls_url, video_id, m3u8_id='hls', fatal=False)
-            if subs:
-                subtitles.update(subs)
-        if dash_url:
-            dash_subs = self._extract_mpd_subtitles(dash_url, video_id, mpd_id='dash', fatal=False)
-            if dash_subs:
-                for lang, subs in dash_subs.items():
-                    subtitles.setdefault(lang, []).extend(subs)
+            fmts, subs = self._extract_mpd_formats_and_subtitles(
+                dash_url, video_id, mpd_id='dash', fatal=False)
+            formats.extend(fmts)
+            self._merge_subtitles(subs, target=subtitles)
+        '''
 
         return {
             'id': video_id,
