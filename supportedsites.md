@@ -347,8 +347,6 @@ The only reliable way to check if a site is supported is to try it.
  - **daystar:clip**
  - **DBTV**
  - **DctpTv**
- - **DeezerAlbum**
- - **DeezerPlaylist**
  - **democracynow**
  - **DestinationAmerica**
  - **DetikEmbed**
@@ -1603,6 +1601,9 @@ The only reliable way to check if a site is supported is to try it.
  - **ustream:channel**
  - **ustudio**
  - **ustudio:embed**
+ - **Vanillo**
+ - **VanilloPlaylist**
+ - **VanilloUser**
  - **Varzesh3**: (**Currently broken**)
  - **Vbox7**
  - **Veo**
@@ -1643,8 +1644,6 @@ The only reliable way to check if a site is supported is to try it.
  - **viewlift**
  - **viewlift:embed**
  - **Viidea**
- - **viki**: [*viki*](## "netrc machine")
- - **viki:channel**: [*viki*](## "netrc machine")
  - **vimeo**: [*vimeo*](## "netrc machine")
  - **vimeo:album**: [*vimeo*](## "netrc machine")
  - **vimeo:channel**: [*vimeo*](## "netrc machine")
