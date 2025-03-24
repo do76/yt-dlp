@@ -3,7 +3,7 @@ import json
 import re
 
 from .common import InfoExtractor
-from ..utils import ExtractorError
+from ..utils import ExtractorError, parse_iso8601
 
 # NOTE: Private videos can be downloaded by adding --add-header "authorization: Bearer abcxyz",
 # but won't work with --cookies-from-browser and --cookies file.txt
@@ -32,13 +32,35 @@ class VanilloIE(InfoExtractor):
         'playlist_mincount': 1,
     }]
 
-    def _download_comments(self, video_id, limit=10, reply_limit=3):
-        comments = []
+    def _get_replies(self, comment_id, limit=3):
+        replies = []
+        replies_url = f'https://api.vanillo.tv/v1/comments/{comment_id}/replies?limit={limit}&reviewing=false'
+        try:
+            replies_data = self._download_json(
+                replies_url, comment_id, note=f'Downloading replies for comment {comment_id}', fatal=False)
+        except ExtractorError:
+            return replies
+        if replies_data.get('status') != 'success':
+            return replies
+        for reply in replies_data.get('data', {}).get('comments', []):
+            transformed = {
+                'id': reply.get('id'),
+                'author': reply.get('profile', {}).get('username'),
+                'author_id': reply.get('profile', {}).get('id'),
+                'text': reply.get('text'),
+                'timestamp': parse_iso8601(reply.get('createdAt')),
+            }
+            replies.append(transformed)
+        return replies
+
+    def _get_comments(self, video_id, limit=10):
+        all_comments = []
         page_key = None
         # Loop to download all comments using pageKey
         while True:
-            base_url = f'https://api.vanillo.tv/v1/videos/{video_id}/comments?limit={limit}&reviewing=false&filter=high_to_low_score'
-            url = base_url if not page_key else f'{base_url}&pageKey={page_key}'
+            url = f'https://api.vanillo.tv/v1/videos/{video_id}/comments?limit={limit}&reviewing=false&filter=high_to_low_score'
+            if page_key:
+                url += f'&pageKey={page_key}'
             try:
                 comments_data = self._download_json(url, video_id, note='Downloading comments', fatal=False)
             except ExtractorError:
@@ -46,25 +68,24 @@ class VanilloIE(InfoExtractor):
             if comments_data.get('status') != 'success':
                 break
             data = comments_data.get('data', {})
-            page_comments = data.get('comments', [])
-            comments.extend(page_comments)
-            page_key = data.get('nextPageKey')
-            if not page_key or not page_comments:
+            comments = data.get('comments', [])
+            if not comments:
                 break
-
-        # For each comment, download replies (if any)
-        for comment in comments:
-            comment_id = comment.get('id')
-            if not comment_id:
-                continue
-            replies_url = f'https://api.vanillo.tv/v1/comments/{comment_id}/replies?limit={reply_limit}&reviewing=false'
-            try:
-                replies_data = self._download_json(replies_url, video_id, note=f'Downloading replies for comment {comment_id}', fatal=False)
-                if replies_data.get('status') == 'success':
-                    comment['replies'] = replies_data.get('data', {}).get('comments', [])
-            except ExtractorError:
-                continue
-        return comments
+            # For each comment, download replies (if any)
+            for comment in comments:
+                transformed = {
+                    'id': comment.get('id'),
+                    'author': comment.get('profile', {}).get('username'),
+                    'author_id': comment.get('profile', {}).get('id'),
+                    'text': comment.get('text'),
+                    'timestamp': parse_iso8601(comment.get('createdAt')),
+                    'replies': self._get_replies(comment.get('id')),
+                }
+                all_comments.append(transformed)
+            page_key = data.get('nextPageKey')
+            if not page_key:
+                break
+        return all_comments
 
     def _real_extract(self, url):
         video_id = self._match_id(url)
@@ -173,7 +194,10 @@ class VanilloIE(InfoExtractor):
         '''
 
         # 7) Download all comments using pagination with pageKey
-        comments = self._download_comments(video_id, limit=10, reply_limit=3)
+        if self._downloader.params.get('getcomments'):
+            comments = self._get_comments(video_id, limit=10)
+        else:
+            comments = None
 
         return {
             'id': video_id,
