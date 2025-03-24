@@ -32,6 +32,40 @@ class VanilloIE(InfoExtractor):
         'playlist_mincount': 1,
     }]
 
+    def _download_comments(self, video_id, limit=10, reply_limit=3):
+        comments = []
+        page_key = None
+        # Loop to download all comments using pageKey
+        while True:
+            base_url = f'https://api.vanillo.tv/v1/videos/{video_id}/comments?limit={limit}&reviewing=false&filter=high_to_low_score'
+            url = base_url if not page_key else f'{base_url}&pageKey={page_key}'
+            try:
+                comments_data = self._download_json(url, video_id, note='Downloading comments', fatal=False)
+            except ExtractorError:
+                break
+            if comments_data.get('status') != 'success':
+                break
+            data = comments_data.get('data', {})
+            page_comments = data.get('comments', [])
+            comments.extend(page_comments)
+            page_key = data.get('nextPageKey')
+            if not page_key or not page_comments:
+                break
+
+        # For each comment, download replies (if any)
+        for comment in comments:
+            comment_id = comment.get('id')
+            if not comment_id:
+                continue
+            replies_url = f'https://api.vanillo.tv/v1/comments/{comment_id}/replies?limit={reply_limit}&reviewing=false'
+            try:
+                replies_data = self._download_json(replies_url, video_id, note=f'Downloading replies for comment {comment_id}', fatal=False)
+                if replies_data.get('status') == 'success':
+                    comment['replies'] = replies_data.get('data', {}).get('comments', [])
+            except ExtractorError:
+                continue
+        return comments
+
     def _real_extract(self, url):
         video_id = self._match_id(url)
 
@@ -138,6 +172,9 @@ class VanilloIE(InfoExtractor):
             self._merge_subtitles(subs, target=subtitles)
         '''
 
+        # 7) Download all comments using pagination with pageKey
+        comments = self._download_comments(video_id, limit=10, reply_limit=3)
+
         return {
             'id': video_id,
             'title': title,
@@ -145,6 +182,7 @@ class VanilloIE(InfoExtractor):
             'thumbnail': thumbnail,
             'formats': formats,
             'subtitles': subtitles,
+            'comments': comments,
             'uploader_url': uploader_url,
             'upload_date': upload_date,
             'duration': duration,
