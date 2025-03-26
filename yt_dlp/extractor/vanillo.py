@@ -61,8 +61,11 @@ class VanilloIE(InfoExtractor):
 
     def _perform_login(self, username, password):
         """
-        Make a direct POST request to log in and store the access_token.
-        Then fetch user profiles and switch to the first profile.
+        Make a direct POST request to log in, store the access_token,
+        then optionally switch to a user-specified profile (or default to the first).
+        If video is private for another profile, user (first profile) won't be able to download it.
+        They can use --extractor-args "Vanillo:profile=<internal profile id>" if they know it.
+        Best and recommended way is to use --cookies-from-browser or --cookies file.txt with already swtiched into correct profile.
         """
 
         login_headers = {
@@ -82,57 +85,93 @@ class VanilloIE(InfoExtractor):
             resp = requests.post(self._LOGIN_URL, headers=login_headers, json=login_payload)
             resp.raise_for_status()
             jdata = resp.json()
-            status = jdata.get('status')
-            if status != 'success':
-                raise ExtractorError(f'Login request returned status={status}', expected=True)
+            if jdata.get('status') != 'success':
+                raise ExtractorError(f'Login request returned status={jdata.get("status")}', expected=True)
 
             self._access_token = jdata['data']['access_token']
             self.to_screen('Successfully retrieved access_token from direct login request.')
 
-            # -- 2) Fetch user profiles --
+            # -- 2) Check for desired profile ID (from user config) --
+            # If the user wants to pick a *specific* profile, they can set it in a custom config.
+            # For example, in yt-dlp.conf or a per-extractor config block:
+            #
+            # {
+            #   "Vanillo": {
+            #       "profile": "RrYcfer3QX2mcWIoZOjKwA"
+            #   }
+            # }
+            #
+            # Or in the CLI via something like:
+            #   yt-dlp --extractor-args "Vanillo:profile=RrYcfer3QX2mcWIoZOjKwA" ...
+            #
+
+            requested_profile_id = self._configuration_arg('profile')
+            if isinstance(requested_profile_id, list):
+                # If the user supplied multiple profiles or a list, take the first
+                requested_profile_id = requested_profile_id[0] if requested_profile_id else None
+
+            # Now requested_profile_id is either a string or None
+            if requested_profile_id:
+                self.to_screen(f'Profile ID requested by user config: {requested_profile_id}')
+            else:
+                self.to_screen('No profile ID provided in config...')
+
+            # -- 3) Fetch all user profiles from the API --
             profiles_url = 'https://api.vanillo.tv/v1/user/profiles'
             profiles_headers = {
                 'User-Agent': 'Mozilla/5.0',
                 'Accept': 'application/json, text/plain, */*',
                 'Authorization': f'Bearer {self._access_token}',
             }
-
             profiles_resp = requests.get(profiles_url, headers=profiles_headers)
             profiles_resp.raise_for_status()
             profiles_data = profiles_resp.json()
+
             if profiles_data.get('status') != 'success':
-                self.to_screen('[Vanillo] Unable to fetch profiles (status != success).')
-                return  # No fatal error, but we cant switch profiles
+                self.report_warning('Unable to fetch profiles (status != success).')
+                return
 
             profiles = profiles_data.get('data', {}).get('profiles', [])
             if not profiles:
-                self.to_screen('[Vanillo] No profiles found, cannot switch profiles.')
+                self.report_warning('No profiles found. Cannot switch profiles.')
                 return
 
-            # -- 3) Pick the first profile automatically --
-            first_profile = profiles[0]
-            first_profile_id = first_profile.get('id')
-            if not first_profile_id:
-                self.to_screen('[Vanillo] First profile has no valid "id", cannot switch.')
-                return
-            self.to_screen(f'[Vanillo] Found {len(profiles)} profile(s). Switching to first: '
-                           f'{first_profile.get("displayName")} (ID={first_profile_id})')
+            # -- 4) Determine which profile to switch to --
+            if requested_profile_id:
+                # Try to find the user-provided ID among the fetched profiles.
+                matched_profile = None
+                for p in profiles:
+                    if p.get('id') == requested_profile_id:
+                        matched_profile = p
+                        break
+                if matched_profile:
+                    profile_id_to_switch = matched_profile['id']
+                    self.to_screen(f"Switching to user-selected profile: {matched_profile.get('displayName')}")
+                else:
+                    self.to_screen(f'The requested profile ID: {requested_profile_id} was not found.')
+                    self.to_screen('Falling back to the first available profile.')
+                    profile_id_to_switch = profiles[0].get('id')
+            else:
+                # If user didnt specify, just pick the first
+                profile_id_to_switch = profiles[0].get('id')
+                self.report_warning(f"No profile specified. Picking first profile: {profiles[0].get('displayName')}")
 
-            # -- 4) Send request to switch to that profile --
+            if not profile_id_to_switch:
+                self.report_warning('Could not find a valid "id" to switch.')
+                return
+
+            # -- 5) Switch to that profile --
             switch_profile_url = 'https://api.vanillo.tv/v1/_/profile/switch'
             switch_headers = {
                 'User-Agent': 'Mozilla/5.0',
                 'Accept': 'application/json, text/plain, */*',
                 'Authorization': f'Bearer {self._access_token}',
                 'Content-Type': 'application/json',
-                # Uncomment these if your environment or Cloudflare config requires them:
-                # 'cf-access-client-id': 'YOUR_CLIENT_ID',
-                # 'cf-access-client-secret': 'YOUR_CLIENT_SECRET',
             }
-            switch_payload = {'profileId': first_profile_id}
+            switch_payload = {'profileId': profile_id_to_switch}
             switch_resp = requests.post(switch_profile_url, headers=switch_headers, json=switch_payload)
             switch_resp.raise_for_status()
-            self.to_screen('[Vanillo] Successfully switched profile.')
+            self.to_screen('Successfully switched profile!')
 
         except Exception as e:
             raise ExtractorError(f'Vanillo login failed: {e}', expected=True)
