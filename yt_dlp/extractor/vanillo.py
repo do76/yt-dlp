@@ -105,6 +105,21 @@ class VanilloIE(InfoExtractor):
                 break
         return all_comments
 
+    r'''
+    def _perform_login(self, username, password):
+        if self._OTV_USER_ID:
+            return
+        if username != 'token' or not re.fullmatch(r'[\da-f]{32}', password):
+            raise ExtractorError(self._LOGIN_HINT, expected=True)
+        self._OTV_USER_ID = password*
+    '''
+
+    '''
+    if cookies from browser or cookies txt, find authorization cookie
+    stop script if trying to use cookies but required one was not found
+    and use it in requests
+    '''
+
     def _real_extract(self, url):
         video_id = self._match_id(url)
 
@@ -119,7 +134,7 @@ class VanilloIE(InfoExtractor):
                 http_code = 404
             if http_code == 404:
                 self.raise_login_required(
-                    '404: Could be a Private video. Authorization is required for this URL and can be passed with the --add-header "authorization: Bearer abcxyz" option. '
+                    '404: Could be a Private video. Pass credentials as -u "token" -p "USER_ID" '
                     'The --cookies and --cookies-from-browser option will not work', method=None)
             elif http_code == 403:
                 raise ExtractorError('Your Internet provider is likely blocked. Try another ISP or use VPN', expected=True)
