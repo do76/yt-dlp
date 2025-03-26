@@ -29,6 +29,24 @@ class VanilloIE(InfoExtractor):
             'categories': ['film_and_animation'],
             'tags': ['Wawa', 'wawa', 'Wa Wa', 'wa wa', 'WaWa', 'wAwA', 'wA Wa'],
         },
+    }, {
+        'url': 'https://vanillo.tv/v/RhSueuQZiKF',
+        'info_dict': {
+            'id': 'RhSueuQZiKF',
+            'title': 'What\'s New on Vanillo - Fall Update',
+            'description': '',
+            'thumbnail': 'https://images.vanillo.tv/7Qfelvn1-4waFjX3rIc1FkfpB9jOJqqLlvieD5i3mlA/h:300/aHR0cHM6Ly9pbWFnZXMuY2RuLnZhbmlsbG8udHYvdGh1bWJuYWlsL3JsMmR5ajJFcnozMEphSUd0bTZyLmF2aWY',
+            'uploader_url': 'Vanillo',
+            'upload_date': '20231020',  # YYYYMMDD format, server API provides 2023-10-20T04:53:13.718Z
+            'duration': 99.35,
+            'view_count': 368,
+            'comment_count': 2,
+            'like_count': 20,
+            'dislike_count': 0,
+            'average_rating': 4.2,
+            'categories': ['film_and_animation'],
+            'tags': ['fall', 'update', 'fall update', 'autumn', 'autumn update', 'vanillo', 'new features', 'new', 'features', 'exciting', 'language', 'switch', 'english', 'descriptive audio', 'descriptive', 'audio', 'qualities', 'higher', 'process', 'processing', 'faster', 'fast', '2x', '4x', 'twice', 'speed', 'speedy', 'quick', 'chapters'],
+        },
         'playlist_mincount': 1,
     }]
 
@@ -101,7 +119,7 @@ class VanilloIE(InfoExtractor):
                 http_code = 404
             if http_code == 404:
                 self.raise_login_required(
-                    'Private video. Authorization is required for this URL and can be passed with the --add-header "authorization: Bearer abcxyz" option. '
+                    '404: Could be a Private video. Authorization is required for this URL and can be passed with the --add-header "authorization: Bearer abcxyz" option. '
                     'The --cookies and --cookies-from-browser option will not work', method=None)
             elif http_code == 403:
                 raise ExtractorError('Your Internet provider is likely blocked. Try another ISP or use VPN', expected=True)
