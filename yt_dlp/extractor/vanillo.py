@@ -21,7 +21,7 @@ class VanilloIE(InfoExtractor):
     VanilloIE, VanilloPlaylistIE, and VanilloUserIE can inherit from it.
     """
 
-    _LOGIN_URL = 'https://api.vanillo.tv/v1/login'
+    _LOGIN_URL = 'https://api.vanillo.tv/v1/_/login'
     _access_token = None
 
     def _real_initialize(self):
@@ -73,7 +73,7 @@ class VanilloIE(InfoExtractor):
             'password': password,
         }
 
-        self.report_login(f'Attempting to log into Vanillo as {username!r}...')
+        self.to_screen(f'Attempting to log into Vanillo as {username!r}...')
 
         try:
             resp = requests.post(self._LOGIN_URL, headers=login_headers, json=login_payload)
@@ -83,7 +83,7 @@ class VanilloIE(InfoExtractor):
             if status != 'success':
                 raise ExtractorError(f'Login request returned status={status}', expected=True)
             self._access_token = jdata['data']['access_token']
-            self.report_login('Successfully retrieved access_token from direct login request.')
+            self.to_screen('Successfully retrieved access_token from direct login request.')
         except Exception as e:
             raise ExtractorError(f'Vanillo login failed: {e}', expected=True)
 
@@ -228,7 +228,7 @@ class VanilloIE(InfoExtractor):
                 http_code = 404
             if http_code == 404:
                 self.raise_login_required(
-                    'Video not found or is private. '
+                    'Video not found or is private. '  # maybe use report_login here?
                     'Sign in if you\'ve been granted access to this video. Use --cookies or --cookies-from-browser option',
                     method=None,
                 )
